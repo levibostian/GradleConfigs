@@ -1,0 +1,152 @@
+/**
+
+Instructions:
+1. Define the following variables:
+
+```
+// In the root build.gradle file of your project, define these variables. 
+// You can define these variables in the module's build.gradle file instead but these are usually global values. 
+buildscript {
+    ext {
+        githubRepoOrg = "levibostian" // https://github.com/<this-part-here>/GradleConfigs
+        githubRepoName = "GradleConfigs" // https://github.com/levibostian/<this-part-here>
+
+        // add as many developers as you need. You can have 1 or more. 
+        moduleDevelopers {
+            developer {
+                id = "levibostian" // ID for developer. I like to use the same as `githubRepoOrg`
+                name = "Levi Bostian" // name for the developer.
+                email = "levi@levi.earth" // email for the developer 
+            }
+        }
+    }
+}
+
+// These are module specific therefore, I put them in the module's build.gradle file
+ext {
+    moduleGroupId = "earth.levi" // Maven groupId. Usually the reverse domain name for you or your org. Can also include more at end like: `earth.levi.project-name` 
+    moduleArtifactId = "module-name" // Maven artifact id. Usually name of the module. 
+    moduleFormalName = "Human readable name for Module"
+    moduleDescription = "Description for module" 
+    moduleSourceCodeLocalDir = "module-name/src/main/java" // For Dokka for source code linking. Path to local source code. 
+    moduleSourceCodeLinkUrl = "https://github.com/levibostian/GradleConfigs/blob/main/module-name/src/main/java" // For Dokka to link to remote source code. Path to remote source code path that matches local. Notice the pattern at the end of the URL matches the local path. 
+
+    moduleUrl = "https://github.com/levibostian/GradleConfigs" // homepage website for module. 
+    moduleSourceCodeUrl = "https://github.com/levibostian/GradleConfigs" // path to source code for module 
+    moduleSourceCodeConnection = "scm:git@github.com:levibostian/GradleConfigs.git"
+    moduleLicenseName = "MIT"
+    moduleLicenseUrl = "https://github.com/levibostian/GradleConfigs/blob/main/LICENSE" // path to remote license file 
+}
+```
+
+2. Add to the bottom of your module (below your variable definitions above), add:
+
+```
+apply from: 'https://raw.githubusercontent.com/levibostian/GradleConfigs/<tag>/maven-publish/github-dokka.gradle'
+```
+
+Replace <tag> with a git tag value (example: 1.0.0). It's recommended to use that over branches or commits. 
+
+3. You will need to set a couple of environment variables to deploy. 
+
+Create a GitHub personal access token if you have not already: https://github.com/settings/tokens/ with the scopes `repo, write:packages` selected.
+
+* `GRADLE_PUBLISH_USERNAME` - the github username of the account you created the personal access token for. 
+* `GRADLE_PUBLISH_PASSWORD` - the personal access token value you generated. 
+
+3. You will now have a gradle task `publish` for your module. Call this command like this:
+
+```
+MODULE_VERSION=1.0.0 ./gradlew :<module-name>:publish
+```
+
+Replace <module-name> with the name of your module you want to publish. 
+
+*/
+
+apply plugin: 'maven-publish'
+apply plugin: 'org.jetbrains.dokka'
+
+dokkaHtml.configure {
+    dokkaSourceSets {
+        named("main") {
+            sourceLink {
+                localDirectory.set(file(moduleSourceCodeLocalDir))
+                remoteUrl.set(java.net.URL(moduleSourceCodeLinkUrl))
+                remoteLineSuffix.set("#L") // works for github links
+            }
+        }
+    }
+}
+
+def getRepositoryUrl() {
+    return "https://maven.pkg.github.com/" + githubRepoOrg + "/" + githubRepoName
+}
+
+afterEvaluate { project ->
+    publishing {
+        repositories {
+            maven {
+                name = "GitHubPackages"
+                url = uri(getRepositoryUrl())
+                credentials {
+                    username = System.getenv("GRADLE_PUBLISH_USERNAME")
+                    password = System.getenv("GRADLE_PUBLISH_PASSWORD")
+                }
+            }
+        }
+        publications {
+            release(MavenPublication) {
+                from components.release
+                groupId moduleGroupId
+                version System.getenv("MODULE_VERSION") // example: 1.0.0 or 1.0.0-alpha
+                artifactId moduleArtifactId
+
+                artifact sourcesJar
+                artifact javadocJar
+
+                // https://docs.gradle.org/current/userguide/publishing_maven.html#sec:modifying_the_generated_pom
+                pom {
+                    name = moduleFormalName
+                    packaging = "aar"
+                    description = moduleDescription
+                    url = moduleUrl
+
+                    scm {
+                        url = moduleSourceCodeUrl
+                        connection = moduleSourceCodeConnection
+                        developerConnection = moduleSourceCodeConnection
+                    }
+
+                    licenses {
+                        license {
+                            name = moduleLicenseName
+                            url = moduleLicenseUrl
+                        }
+                    }
+
+                    developers = moduleDevelopers
+                }
+            }
+        }
+    }
+}
+
+task sourcesJar(type: Jar) {
+    group "publishing"
+    description "Generates sources jar"
+    archiveClassifier.set("sources")
+    from android.sourceSets.main.java.srcDirs
+}
+
+task javadocJar(type: Jar, dependsOn: dokkaJavadoc) {
+    group "publishing"
+    description "Generates javadocJar based on Dokka"
+    archiveClassifier.set("javadoc")
+    from dokkaJavadoc.outputDirectory
+}
+
+artifacts {
+    archives javadocJar
+    archives sourcesJar
+}
